@@ -1,8 +1,8 @@
 import { Observable } from 'rxjs';
 import { RcWebsocketSubject } from "../comm/RcWebsocketSubject";
 import { axisBottom, axisTop, axisLeft, axisRight} from 'd3-axis';
-import { scaleLinear, scalePoint } from 'd3-scale';
-
+import { scaleLinear, scalePoint, scaleOrdinal } from 'd3-scale';
+import { interpolateRound } from "d3-interpolate";
 
 
 export class WarIndex {
@@ -27,6 +27,8 @@ export class WarIndex {
                 //console.log(balance, root, rect)
             }
         );
+
+        this.typeScale = scaleOrdinal(['red', 'green']).domain(['bid', 'ask']);
 
     }
 
@@ -74,10 +76,32 @@ export class WarIndex {
 
     }
 
-    drawBalance (priceScale, amountScale, balance, root, view) {
-        const paths = ['bid', 'ask'].map( tp => {
+    drawBalance (balance, root, view) {
 
-        })
+        const paths = ['bid', 'ask']
+            .map( tp => {
+                return {
+                    path: balance
+                        .filter(item => item.type === tp)
+                        .map((p, i) => {
+                            return (i === 0 ? "M" : "L") + this.priceScale(p.price) + " " + this.amountScale(p.amount);
+                        })
+                        .join(" "),
+                    type: tp
+                }
+            });
+        const bals = root.selectAll("path.balancePath").data(paths);
+        bals
+            .attr("d", d => d.path)
+            .classed("balancePath", true)
+            .attr("fill", "transparent")
+            .attr("stroke", d => this.typeScale(d.type));
+        bals.enter()
+            .append("path")
+            .classed("balancePath", true)
+            .attr("d", d => d.path)
+            .attr("fill", "transparent")
+            .attr("stroke", d => this.typeScale(d.type));
     }
 
     redrawBalance (balance, root, view) {
@@ -99,7 +123,8 @@ export class WarIndex {
         }) || view.width !== this.width ) {
             this.priceScale = scalePoint()
                 .domain(balance.map( item => item.price ))
-                .range([0, view.width]);
+                .range([view.width, 0])
+                .round(true);
 
             this.drawBalancePriceAxis(this.priceScale, balance, root, view);
             this.stats.maxPrice = balanceStats.maxPrice;
@@ -113,14 +138,15 @@ export class WarIndex {
             const amount = Math.max(-balanceStats.minAmount, balanceStats.maxAmount);
             this.amountScale = scaleLinear()
                 .domain([amount, -amount])
-                .range([0, view.height]);
+                .range([0, view.height])
+                .interpolate(interpolateRound);
 
             this.drawBalanceAmountAxis(this.amountScale, balance, root, view);
             this.stats.maxAmount = Math.max(balanceStats.maxAmount, this.stats.maxAmount);
             this.stats.minAmount = Math.min(balanceStats.minAmount, this.stats.minAmount);
         }
 
-        this.drawBalance(this.priceScale, this.amountScale, this.)
+        this.drawBalance(balance, root,view);
 
     }
 

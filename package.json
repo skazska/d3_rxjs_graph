@@ -7,6 +7,7 @@
       "d3": "npm:d3@^4.12.2",
       "d3-array": "npm:d3-array@^1.2.1",
       "d3-axis": "npm:d3-axis@^1.0.8",
+      "d3-interpolate": "npm:d3-interpolate@^1.1.6",
       "d3-scale": "npm:d3-scale@^1.0.7",
       "d3-selection": "npm:d3-selection@^1.2.0",
       "rxjs": "npm:rxjs@^5.5.6"
