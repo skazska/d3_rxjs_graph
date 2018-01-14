@@ -19,8 +19,8 @@ export class Graph {
 //        window.on('resize', )
 
         Observable.fromEvent(window, 'resize')
-            .do(x => console.log('resize', x))
             .throttleTime(1000)
+            .do(x => console.log('resize', x))
             .map(evt => this.drawContext)
             .subscribe(x => this._redraw.next(x));
     }

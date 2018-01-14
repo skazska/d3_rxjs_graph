@@ -3,7 +3,7 @@ import { select } from "d3-selection";
 
 import { RcWebsocketSubject } from "./comm/RcWebsocketSubject";
 import { Graph } from "./graph/Graph";
-import { WarIndex } from "./graph/warIndex";
+import { OrderBookBalance } from "./graph/OrderBookBalance";
 
 
 //import * as d3 from 'd3';
@@ -20,7 +20,7 @@ export function bootstrap() {
     const
         graph = new Graph("#graph>svg", {margin: 50}),
         source = new RcWebsocketSubject(wsUrl),
-        wi = new WarIndex(graph, source);
+        wi = new OrderBookBalance(graph, source);
 
     source.connectionStatus.subscribe((isConnected) => {
         console.log('connected: ', isConnected);
