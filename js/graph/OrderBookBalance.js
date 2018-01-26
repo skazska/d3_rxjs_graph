@@ -20,7 +20,18 @@ export class OrderBookBalance {
 
         this.subscription = Observable.combineLatest(
             graph.redrawSubject,
-            source.filter(evt => evt.event === 'balance').map(evt => evt.payload)
+            source.filter(evt => evt.event === 'balance').map(evt => {
+                return evt.payload
+                    .map( m => {
+                        return {
+                            precision: m[0], price: m[1], type: m[2] * 2 - 1, amount: m[3], count: m[4], amountDiff: m[5],
+                            countDiff: m[6]
+                        }
+                    })
+                    .sort( (prev, next) => {
+                        return prev.price - next.price;
+                    });
+            })
         ).subscribe(
             ([{root, rect}, balance]) => {
 
@@ -30,7 +41,7 @@ export class OrderBookBalance {
             }
         );
 
-        this.typeScale = scaleOrdinal(['red', 'green']).domain(['bid', 'ask']);
+        this.typeScale = scaleOrdinal(['red', 'green']).domain([1, -1]);
 
     }
 
@@ -41,19 +52,19 @@ export class OrderBookBalance {
     drawBalancePriceAxis(scale, balance, root, view) {
         handle(
             root.selectAll("g.priceAxis").data([view]),
-            axis => {
-                return axis.append("g").classed("priceAxis", true);
+            join => {
+                return join.append("g").classed("priceAxis", true);
             },
-            axis => {
-                const xAxis = axisBottom(scale);
+            join => {
+                const axis = axisLeft(scale).ticks(20);
 
-                axis.attr("transform", "translate(0," + view.height + ")")
-                    .call(xAxis);
+                join.attr("transform", "translate(" + view.width + ", 0)")
+                    .call(axis);
 
-                axis.selectAll("text")
-                    .attr("transform", "translate(-13, 20) rotate(-90)");
+                join.selectAll("text")
+//                    .attr("transform", "translate(-13, 20) rotate(-90)");
 
-                return axis;
+                return join;
             }
         );
     }
@@ -65,9 +76,9 @@ export class OrderBookBalance {
                 return axis.append("g").classed("amountAxis", true);
             },
             axis => {
-                const yAxis = axisRight(scale);
+                const yAxis = axisBottom(scale).ticks(5);
                 // .tickSize();
-                axis.attr("transform", "translate(" + view.width + ", 0)")
+                axis.attr("transform", "translate(" + view.x + ", " + view.height + ")")
                     .call(yAxis);
 
                 return axis;
@@ -75,11 +86,36 @@ export class OrderBookBalance {
         )
     }
 
+    prepareData (balance) {
+        return balance.map( (b, i, a) => {
+            const prices = [ b.price, 0, a[i - b.type].price ];
+
+            let
+                priceFrom = prices[1 + b.type],
+                priceTo = prices[1 - b.type];
+
+            if (b.type !== a[i - b.type].type) {
+                if (b.type < 0) {
+                    priceTo = priceFrom + ( priceTo  - priceFrom) / 3;
+                } else {
+                    priceFrom = priceTo - ( priceTo  - priceFrom) / 3;
+                }
+            }
+            return {
+                o: b,
+                height: this.amountScale(b.amount),
+                count: this.countScale(b.count),
+                position: this.priceScale(priceFrom),
+                width: this.priceScale(priceFrom) - this.priceScale(priceTo),
+                color: this.typeScale(b.type)
+            }
+        })
+    }
+
     drawBalance (balance, root, view) {
-        let bWidth = this.priceScale.bandwidth();
 
         handle(
-            root.selectAll("g.obBar").data(balance.sort( (p1, p2) => { return p1.price - p2.price} )),
+            root.selectAll("g.obBar").data(this.prepareData(balance)),
             bar => {
                 const result = bar.append("g").classed("obBar", true);
                 result.append("rect");
@@ -90,27 +126,23 @@ export class OrderBookBalance {
             },
             bar => {
                 bar.select("rect")
-                    .attr("stroke", d => this.typeScale(d.type))
-                    .attr("width", bWidth)
-                    .attr("height", d => this.amountScale(d.amount))
+                    .attr("stroke", d => d.color)
+                    .attr("height", d => d.width)
+                    .attr("width", d => view.width - d.height);
                 bar.select("path")
                     .attr("d", d => {
-                        let
-                            rCnt = 10 / (this.stats.maxCount || 1000) * d.count ,
-                            rHei = Math.floor(this.amountScale(d.amount)/rCnt),
-                            path = "";
-
-                        for (let i = 0; i < (rCnt - 1); i++ ) {
-                            path += "m0 "+rHei+" l"+bWidth+" -3 m-"+bWidth+" 0 ";
+                        let path = "";
+                        for (let i = 0; i < (d.count - 1); i++ ) {
+                            path += "m"+Math.floor((view.width - d.height)/d.count)+" 0 l-3 "+d.width+" m0 -"+d.width+" ";
                         }
                         return path;
                     })
-                    .attr("stroke", d => this.typeScale(d.type));
+                    .attr("stroke", d => d.color);
 
                 bar.select("text")
-                    .attr("transform", "translate(13,0) rotate(-90) ")
-                    .text(d => ""+d.amount+" ("+d.count+") "+d.amountDiff);
-                bar.attr("transform", d => "translate("+this.priceScale(d.price)+", "+(view.height-this.amountScale(d.amount))+")");
+                    .attr("transform", "translate(-613,0)")
+                    .text(d => ""+d.o.price+" - "+d.o.amount+" ("+d.o.count+") "+d.o.amountDiff);
+                bar.attr("transform", d => "translate("+(view.x + d.height)+", "+(d.position - d.width)+")");
 
                 return bar;
             },
@@ -123,63 +155,88 @@ export class OrderBookBalance {
     }
 
     redrawBalance (balance, root, view) {
-        const balanceStats = balance.reduce(
-            (stats, item) => {
-                if (stats.minPrice > item.price) stats.minPrice = item.price;
-                if (stats.maxPrice < item.price) stats.maxPrice = item.price;
-                if (stats.minAmount > item.amount) stats.minAmount = item.amount;
-                if (stats.maxAmount < item.amount) stats.maxAmount = item.amount;
-                if (stats.minCount > item.count) stats.minCount = item.count;
-                if (stats.maxCount < item.count) stats.maxCount = item.count;
-                return stats;
-            },
-            {
-                minPrice: balance[0].price,
-                maxPrice: balance[0].price,
-                maxAmount: balance[0].amount,
-                minAmount: balance[0].amount,
-                maxCount: balance[0].count,
-                minCount: balance[0].count
-            }
-        );
+        const
+            balWidth = Math.floor(view.width * 1 / 4),
+            balanceStats = balance.reduce(
+                (stats, item) => {
+                    if (stats.minPrice > item.price) stats.minPrice = item.price;
+                    if (stats.maxPrice < item.price) stats.maxPrice = item.price;
+                    if (stats.minAmount > item.amount) stats.minAmount = item.amount;
+                    if (stats.maxAmount < item.amount) stats.maxAmount = item.amount;
+                    if (stats.minCount > item.count) stats.minCount = item.count;
+                    if (stats.maxCount < item.count) stats.maxCount = item.count;
+                    return stats;
+                },
+                {
+                    minPrice: balance[0].price,
+                    maxPrice: balance[0].price,
+                    maxAmount: balance[0].amount,
+                    minAmount: balance[0].amount,
+                    maxCount: balance[0].count,
+                    minCount: balance[0].count
+                }
+            ),
+            {bids, asks} = balance.reduce(
+                (grp, item) => {
+                    grp[item.type] = item;
+                    return grp;
+                },
+                {bids: [], asks: []}
+            );
 
         if (['minPrice', 'maxPrice'].some(p => {
             return Math.abs(balanceStats[p] - this.stats[p]) > 0.05 * (this.stats.maxPrice - this.stats.minPrice)
-        }) || view.width !== this.width ) {
-            // this.priceScale = scalePoint()
-            //     .domain(balance.map( item => item.price ).sort())
-            //     .range([view.width, 0])
-            //     .round(true);
+        }) || view.height !== this.height ) {
             this.stats.maxPrice = balanceStats.maxPrice;
             this.stats.minPrice = balanceStats.minPrice;
 
-            this.priceScale = scaleBand().padding(.05).round(true)
-                .domain(balance.map( item => item.price ).sort())//([this.stats.minPrice, this.stats.maxPrice])
-                .range([0, view.width]);
+            this.priceScale = scaleLinear()
+                .domain([this.stats.maxPrice, this.stats.minPrice])
+                .range([0, view.height])
+                .interpolate(interpolateRound);
 
-            this.drawBalancePriceAxis(this.priceScale, balance, root, view);
+            this.drawBalancePriceAxis(this.priceScale, balance, root, {width: view.width - balWidth, height: view.height});
+
+        }
+
+        if (['minCount', 'maxCount'].some(p => {
+                return Math.abs(balanceStats[p] - this.stats[p]) > 0.05 * (this.stats.maxCount - this.stats.minCount)
+            }) || view.width !== this.width ) {
+            this.stats.maxCount = Math.max(balanceStats.maxCount, this.stats.maxCount || balanceStats.maxCount);
+            this.stats.minCount = Math.min(balanceStats.minCount, this.stats.minCount || balanceStats.minCount);
+
+            this.countScale = scalePow().exponent(0.33)
+                .domain([0, this.stats.maxCount])
+                .range([0, 10])
+                .interpolate(interpolateRound);
 
         }
 
         if (['minAmount', 'maxAmount'].some(p => {
             return Math.abs(balanceStats[p] - this.stats[p]) > 0.05 * (this.stats.maxAmount - this.stats.minAmount)
-        }) || view.height !== this.height ) {
+        }) || view.width !== this.width ) {
             this.stats.maxAmount = Math.max(balanceStats.maxAmount, this.stats.maxAmount || balanceStats.maxAmount);
             this.stats.minAmount = Math.min(balanceStats.minAmount, this.stats.minAmount || balanceStats.minAmount);
-            this.stats.maxCount = Math.max(balanceStats.maxCount, this.stats.maxCount || balanceStats.maxCount);
-            this.stats.minCount = Math.min(balanceStats.minCount, this.stats.minCount || balanceStats.minCount);
-            const amount = Math.max(-this.stats.minAmount , this.stats.maxAmount);
+            // const amount = Math.max(this.stats.minAmount , this.stats.maxAmount);
 
-            this.amountScale = scalePow().exponent(0.25)
-                .domain([amount, -amount])
-                .range([0, view.height])
+            this.amountScale = scalePow().exponent(0.33)
+                .domain([0, this.stats.maxAmount])
+                .range([balWidth - 10, 0])
                 .interpolate(interpolateRound);
 
-            this.drawBalanceAmountAxis(this.amountScale, balance, root, view);
+            this.drawBalanceAmountAxis(
+                this.amountScale,
+                balance,
+                root,
+                {x: view.width - balWidth + 10, y: 0, width: balWidth - 10, height: view.height}
+            );
         }
 
-        this.drawBalance(balance, root,view);
-
+        this.drawBalance(
+            balance,
+            root,
+            {x: view.width - balWidth + 10, y: 0, width: balWidth - 10, height: view.height}
+        );
     }
 
 

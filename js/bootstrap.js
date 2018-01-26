@@ -18,7 +18,7 @@ export function bootstrap() {
     console.log('Hi there!!!');
 
     const
-        graph = new Graph("#graph>svg", {margin: 50}),
+        graph = new Graph("#graph>svg", {margin: {top: 30, right: 80, bottom: 30, left: 30}}),
         source = new RcWebsocketSubject(wsUrl),
         wi = new OrderBookBalance(graph, source);
 
